@@ -11,7 +11,6 @@ import Combine
 import SwiftUI
 
 class MainWindowController: NSWindowController {
-
     // Without this, AppKit won't call -loadWindow
     override var windowNibName: NSNib.Name? { "None" }
 
@@ -37,13 +36,16 @@ class MainWindowController: NSWindowController {
     override func loadWindow() {
         // Create the window and set the content view.
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 300),
+            contentRect: NSRect(x: 0, y: 0, width: 950, height: 600),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered, defer: false)
         window.setFrameAutosaveName("Main Window")
         window.contentView = NSHostingView(rootView: windowContent())
         window.title = "Control Room"
         window.isMovableByWindowBackground = true
+
+        // disable the system-generated tab bar menu items, because we can't use them
+        window.tabbingMode = .disallowed
 
         self.window = window
         adjustWindowLevel()
@@ -63,20 +65,29 @@ class MainWindowController: NSWindowController {
     }
 
     @IBAction func showPreferences(_ sender: Any) {
-        UIState.shared.showPreferences = true
+        UIState.shared.currentSheet = .preferences
     }
 
+    @IBAction func newSimulator(_ sender: Any) {
+        UIState.shared.currentSheet = .createSimulator
+    }
+
+    @IBAction func deleteUnavailable(_ sender: Any) {
+        UIState.shared.currentAlert = .confirmDeleteUnavailable
+    }
 }
 
 extension MainWindowController: NSMenuItemValidation {
-
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(toggleFloatingWindow(_:)) {
             menuItem.state = preferences.wantsFloatingWindow ? .on : .off
             return true
         }
 
+        if menuItem.action == #selector(newSimulator(_:)) {
+            return controller.loadingStatus == .success
+        }
+
         return responds(to: menuItem.action)
     }
-
 }

@@ -9,14 +9,37 @@
 import Foundation
 
 extension SimCtl {
+    enum Platform {
+        case iOS
+        case tvOS
+        case watchOS
+    }
+
+    enum DeviceFamily: CaseIterable {
+        case iPhone
+        case iPad
+        case tv
+        case watch
+
+        var displayName: String {
+            switch self {
+            case .iPhone: return "iPhone"
+            case .iPad: return "iPad"
+            case .watch: return "Apple Watch"
+            case .tv: return "Apple TV"
+            }
+        }
+    }
+
     struct DeviceTypeList: Decodable {
         let devicetypes: [DeviceType]
     }
 
-    struct DeviceType: Decodable, Hashable {
+    struct DeviceType: Decodable, Hashable, Identifiable {
         let bundlePath: String
         let name: String
         let identifier: String
+        var id: String { identifier }
 
         var modelTypeIdentifier: TypeIdentifier? {
             guard let bundle = Bundle(path: bundlePath) else { return nil }
@@ -25,6 +48,14 @@ extension SimCtl {
             guard let modelIdentifier = contents.object(forKey: "modelIdentifier") as? String else { return nil }
 
             return TypeIdentifier(modelIdentifier: modelIdentifier)
+        }
+
+        var family: DeviceFamily {
+            let type = modelTypeIdentifier ?? .defaultiPhone
+            if type.conformsTo(.tv) { return .tv }
+            if type.conformsTo(.watch) { return .watch }
+            if type.conformsTo(.pad) { return .iPad }
+            return .iPhone
         }
     }
 
@@ -45,7 +76,7 @@ extension SimCtl {
         let runtimes: [Runtime]
     }
 
-    struct Runtime: Decodable, Hashable {
+    struct Runtime: Decodable, Hashable, Identifiable {
         static let unknown = Runtime(buildversion: "", identifier: "Unknown", version: "0.0.0", isAvailable: false, name: "Default OS")
         static let runtimeRegex = try? NSRegularExpression(pattern: #"^com\.apple\.CoreSimulator\.SimRuntime\.([a-z]+)-([0-9-]+)$"#, options: .caseInsensitive)
 
@@ -55,9 +86,23 @@ extension SimCtl {
         let isAvailable: Bool
         let name: String
 
+        var id: String { identifier }
+
+        var supportedFamilies: Set<DeviceFamily> {
+            if name.hasPrefix("iOS") {
+                return [.iPhone, .iPad]
+            } else if name.hasPrefix("watchOS") {
+                return [.watch]
+            } else if name.hasPrefix("tvOS") {
+                return [.tv]
+            } else {
+                return []
+            }
+        }
+
         /// The user-visible description of the runtime.
         var description: String {
-            if buildversion.isEmpty == false {
+            if buildversion.isNotEmpty {
                 return "\(name) (\(buildversion))"
             } else {
                 return "\(name)"
@@ -98,6 +143,7 @@ extension SimCtl {
         let bundleIdentifier: String
         let displayName: String
         let bundlePath: String
+        let dataFolderPath: String?
     }
 }
 
@@ -108,5 +154,6 @@ extension SimCtl.Application {
         case bundleIdentifier = "CFBundleIdentifier"
         case displayName = "CFBundleDisplayName"
         case bundlePath = "Bundle"
+        case dataFolderPath = "DataContainer"
     }
 }

@@ -7,6 +7,7 @@
 //
 
 import Combine
+import KeyboardShortcuts
 import SwiftUI
 
 class Preferences: ObservableObject {
@@ -16,7 +17,9 @@ class Preferences: ObservableObject {
 
     let userDefaults: UserDefaults
 
+    @UserDefault("CRWantsMenuBarIcon") var wantsMenuBarIcon = true
     @UserDefault("CRWantsFloatingWindow") var wantsFloatingWindow = false
+    @UserDefault("CRLastSimulatorUDID") var lastSimulatorUDID = "booted"
 
     @UserDefault("CRSidebar_ShowDefaultSimulator") var showDefaultSimulator = true
     @UserDefault("CRSidebar_ShowBootedDevicesFirst") var showBootedDevicesFirst = false
@@ -38,9 +41,10 @@ class Preferences: ObservableObject {
     """
 
     @UserDefault("CRNetwork_CarrierName") var carrierName = "Carrier"
+    @UserDefault("CRMedia_VideoFormat") var videoFormat = 0
 
     init(defaults: UserDefaults = .standard) {
-        self.userDefaults = defaults
+        userDefaults = defaults
     }
 }
 
@@ -65,22 +69,28 @@ struct UserDefault<Value> {
     /// In other words, this allows us to get access to "self": the object that holds the property wrapper.
     /// By using this, we can directly access the Preferences's "objectWillChange" publisher, as well
     /// as its stored UserDefaults instance.
-    static subscript(_enclosingInstance instance: Preferences,
-                     wrapped wrappedKeyPath: ReferenceWritableKeyPath<Preferences, Value>,
-                     storage storageKeyPath: ReferenceWritableKeyPath<Preferences, Self>) -> Value {
-
+    static subscript(
+        _enclosingInstance instance: Preferences,
+        wrapped wrappedKeyPath: ReferenceWritableKeyPath<Preferences, Value>,
+        storage storageKeyPath: ReferenceWritableKeyPath<Preferences, Self>
+    ) -> Value {
         get {
             let wrapper = instance[keyPath: storageKeyPath]
+
             guard let anyValue = instance.userDefaults.value(forKey: wrapper.key) else {
                 return wrapper.defaultValue
             }
+
             guard let value = anyValue as? Value else {
                 return wrapper.defaultValue
             }
+
             return value
         }
+
         set {
             instance.objectWillChange.send()
+
             let wrapper = instance[keyPath: storageKeyPath]
             instance.userDefaults.set(newValue, forKey: wrapper.key)
             instance.objectDidChange.send()

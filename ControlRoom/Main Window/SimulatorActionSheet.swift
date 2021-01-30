@@ -18,17 +18,20 @@ struct SimulatorActionSheet<Content: View>: View {
 
     let confirmationTitle: String
     let confirmationAction: () -> Void
+    let canConfirm: Bool
 
     internal init(icon: NSImage,
                   message: String,
                   informativeText: String,
                   confirmationTitle: String,
                   confirm: @escaping () -> Void,
+                  canConfirm: Bool = true,
                   @ViewBuilder content: () -> Content) {
         self.icon = icon
         self.message = message
         self.informativeText = informativeText
         self.content = content()
+        self.canConfirm = canConfirm
         self.confirmationTitle = confirmationTitle
         self.confirmationAction = confirm
     }
@@ -49,18 +52,19 @@ struct SimulatorActionSheet<Content: View>: View {
                     Text(informativeText)
                         .font(.caption)
                         .multilineTextAlignment(.leading)
+
+                    content
                 }
             }
 
-            content
-
             HStack {
-                Button("Cancel", action: self.dismiss)
+                Button("Cancel", action: dismiss)
                 Spacer()
                 Button(confirmationTitle) {
-                    self.confirmationAction()
-                    self.dismiss()
+                    confirmationAction()
+                    dismiss()
                 }
+                .disabled(canConfirm == false)
             }
         }
         .fixedSize(horizontal: false, vertical: true)
@@ -69,6 +73,17 @@ struct SimulatorActionSheet<Content: View>: View {
     }
 
     private func dismiss() {
-        self.presentationMode.wrappedValue.dismiss()
+        presentationMode.wrappedValue.dismiss()
+    }
+}
+
+extension SimulatorActionSheet where Content == EmptyView {
+    internal init(icon: NSImage,
+                  message: String,
+                  informativeText: String,
+                  confirmationTitle: String,
+                  confirm: @escaping () -> Void) {
+
+        self.init(icon: icon, message: message, informativeText: informativeText, confirmationTitle: confirmationTitle, confirm: confirm, content: { EmptyView() })
     }
 }

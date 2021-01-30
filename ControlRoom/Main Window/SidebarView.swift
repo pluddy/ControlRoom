@@ -8,7 +8,7 @@
 
 import SwiftUI
 
-/// Shows the list of available simulators.
+/// Shows the list of available simulators, allowing selection, filtering, and deletion.
 struct SidebarView: View {
     @EnvironmentObject var preferences: Preferences
     @ObservedObject var controller: SimulatorsController
@@ -16,11 +16,8 @@ struct SidebarView: View {
     @State private var shouldShowDeleteAlert = false
 
     private var selectedSimulatorsSummary: String {
-        guard
-            controller.selectedSimulators.count > 0
-            else {
-                return ""
-            }
+        guard controller.selectedSimulators.count > 0 else { return "" }
+
         switch controller.selectedSimulators.count {
         case 1:
             return controller.selectedSimulators[0].summary
@@ -28,66 +25,67 @@ struct SidebarView: View {
             let simulatorsSummaries = controller.selectedSimulators.map { "• \($0.summary)" }.joined(separator: "\n")
             return "the following simulators? \n\n\(simulatorsSummaries)"
         }
-
     }
 
     var body: some View {
-        GeometryReader { _ in
-            VStack(spacing: 0) {
-                List(selection: self.$controller.selectedSimulatorIDs) {
-                    if self.controller.simulators.isEmpty {
-                        Text("No simulators")
-                    } else {
-                        ForEach(Simulator.Platform.allCases, id: \.self) { platform in
-                            self.section(for: platform)
-                        }
+        VStack(spacing: 0) {
+            List(selection: $controller.selectedSimulatorIDs.onChange(updateSelectedSimulators)) {
+                if controller.simulators.isEmpty {
+                    Text("No simulators")
+                } else {
+                    ForEach(SimCtl.DeviceFamily.allCases, id: \.self, content: section)
+                }
+            }
+            .contextMenu {
+                if controller.selectedSimulatorIDs.isNotEmpty {
+                    Button("Delete...") {
+                        shouldShowDeleteAlert = true
                     }
                 }
-                .contextMenu {
-                    if self.controller.selectedSimulatorIDs.count > 0 {
-                        Button("Delete...") {
-                            self.shouldShowDeleteAlert = true
-                        }
-                    }
-                }
-                .listStyle(SidebarListStyle())
+            }
+            .listStyle(SidebarListStyle())
 
-                Divider()
+            Divider()
 
-                HStack(spacing: 4) {
-                    Button(action: { self.preferences.shouldShowOnlyActiveDevices.toggle() }, label: {
-                        Image("power")
+            HStack(spacing: 4) {
+                Button {
+                    preferences.shouldShowOnlyActiveDevices.toggle()
+                } label: {
+                    Image("power")
                         .resizable()
-                        .foregroundColor(self.preferences.shouldShowOnlyActiveDevices ? .accentColor : .secondary)
-                        .aspectRatio(CGSize(width: 133, height: 137), contentMode: .fit)
+                        .foregroundColor(preferences.shouldShowOnlyActiveDevices ? .accentColor : .secondary)
+                        .aspectRatio(contentMode: .fit)
                         .frame(width: 16)
-                    })
-                    .buttonStyle(BorderlessButtonStyle())
-                    .padding(.leading, 3)
-                    FilterField("Filter", text: self.$preferences.filterText)
+                        .padding(.horizontal, 2)
                 }
-                .padding(2)
-                .sheet(isPresented: self.$shouldShowDeleteAlert) {
-                    SimulatorActionSheet(icon: self.controller.selectedSimulators[0].image,
-                                         message: "Delete Simulators?",
-                                         informativeText: "Are you sure you want to delete the selected simulators? You will not be able to undo this action.",
-                                         confirmationTitle: "Delete",
-                                         confirm: self.deleteSelectedSimulators,
-                                         content: { EmptyView() })
-                }
+                .buttonStyle(BorderlessButtonStyle())
+                .padding(.leading, 3)
+
+                FilterField("Filter", text: $preferences.filterText)
+            }
+            .padding(2)
+            .sheet(isPresented: $shouldShowDeleteAlert) {
+                SimulatorActionSheet(
+                    icon: controller.selectedSimulators[0].image,
+                    message: "Delete Simulators?",
+                    informativeText: "Are you sure you want to delete the selected simulators? You will not be able to undo this action.",
+                    confirmationTitle: "Delete",
+                    confirm: deleteSelectedSimulators,
+                    content: { EmptyView() }
+                )
             }
         }
     }
 
-    private func section(for platform: Simulator.Platform) -> some View {
-        let simulators = controller.simulators.filter({ $0.platform == platform })
+    private func section(for family: SimCtl.DeviceFamily) -> some View {
+        let simulators = controller.simulators.filter { $0.deviceFamily == family }
         let canShowContext = controller.selectedSimulatorIDs.count < 2
 
         return Group {
             if simulators.isEmpty {
                 EmptyView()
             } else {
-                Section(header: Text(platform.displayName.uppercased())) {
+                Section(header: Text(family.displayName)) {
                     ForEach(simulators) { simulator in
                         SimulatorSidebarView(simulator: simulator, canShowContextualMenu: canShowContext)
                             .tag(simulator.udid)
@@ -99,8 +97,17 @@ struct SidebarView: View {
 
     /// Deletes all simulators that are currently selected.
     func deleteSelectedSimulators() {
-        guard controller.selectedSimulatorIDs.count > 0 else { return }
+        guard controller.selectedSimulatorIDs.isNotEmpty else { return }
         SimCtl.delete(controller.selectedSimulatorIDs)
+    }
+
+    /// Called whenever the user adjusts their selection of simulator.
+    func updateSelectedSimulators() {
+        // If we selected exactly one simulator, stash its UDID away so we can
+        // quickly use it elsewhere in the app, e.g. in the menu bar icon.
+        if controller.selectedSimulatorIDs.count == 1 {
+            preferences.lastSimulatorUDID = controller.selectedSimulators.first!.udid
+        }
     }
 }
 

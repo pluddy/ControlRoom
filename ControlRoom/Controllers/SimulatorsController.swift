@@ -12,7 +12,6 @@ import SwiftUI
 
 /// A centralized class that loads simulator data and handles filtering.
 class SimulatorsController: ObservableObject {
-
     /// Tracks the state of fetching simulator data from simctl.
     enum LoadingStatus {
         /// Loading is in progress
@@ -23,6 +22,9 @@ class SimulatorsController: ObservableObject {
 
         /// Loading failed
         case failed
+
+        /// Invalid command line tool
+        case invalidCommandLineTool
     }
 
     /// The current loading state; defaults to .loading
@@ -37,6 +39,9 @@ class SimulatorsController: ObservableObject {
     /// An array of all simulators that were loaded from simctl.
     private var allSimulators = [Simulator]()
 
+    private(set) var deviceTypes = [DeviceType]()
+    private(set) var runtimes = [Runtime]()
+
     /// The simulators the user has selected to work with. If this has one item then
     /// they are working with a simulator; if more than one they are probably about
     /// to delete several at a time.
@@ -46,7 +51,12 @@ class SimulatorsController: ObservableObject {
     }
 
     var selectedSimulators: [Simulator] {
-        allSimulators.filter({ selectedSimulatorIDs.contains($0.udid) })
+        var selected = [Simulator]()
+        if selectedSimulatorIDs.contains(Simulator.default.udid) {
+            selected.append(Simulator.default)
+        }
+        selected.append(contentsOf: allSimulators.filter { selectedSimulatorIDs.contains($0.udid) })
+        return selected
     }
 
     @ObservedObject var preferences: Preferences
@@ -54,11 +64,23 @@ class SimulatorsController: ObservableObject {
 
     init(preferences: Preferences) {
         self.preferences = preferences
-        loadSimulators()
 
-        preferences.objectDidChange.sink(receiveValue: { [weak self] in
-            self?.filterSimulators()
-        }).store(in: &cancellables)
+        XcodeCommandLineToolsController.selectedCommandLineTool()
+            .receive(on: DispatchQueue.main)
+            .sink { tool in
+                if tool != .empty {
+                    self.loadSimulators()
+                } else {
+                    self.loadingStatus = .invalidCommandLineTool
+                }
+            }
+            .store(in: &cancellables)
+
+        preferences.objectDidChange
+            .sink { [weak self] in
+                self?.filterSimulators()
+            }
+            .store(in: &cancellables)
     }
 
     /// Fetches all simulators from simctl.
@@ -71,8 +93,8 @@ class SimulatorsController: ObservableObject {
 
         devices.combineLatest(deviceTypes, runtimes)
             .receive(on: DispatchQueue.main)
-            .sink(receiveCompletion: self.finishedLoadingSimulators,
-                  receiveValue: self.handleLoadedInformation)
+            .sink(receiveCompletion: finishedLoadingSimulators,
+                  receiveValue: handleLoadedInformation)
             .store(in: &cancellables)
     }
 
@@ -81,8 +103,8 @@ class SimulatorsController: ObservableObject {
                                          _ runtimes: SimCtl.RuntimeList) {
         var final = [Simulator]()
 
-        let lookupDeviceType = Dictionary(grouping: deviceTypes.devicetypes, by: { $0.identifier }).compactMapValues({ $0.first })
-        let lookupRuntime = Dictionary(grouping: runtimes.runtimes, by: { $0.identifier }).compactMapValues({ $0.first })
+        let lookupDeviceType = Dictionary(grouping: deviceTypes.devicetypes, by: \.identifier).compactMapValues(\.first)
+        let lookupRuntime = Dictionary(grouping: runtimes.runtimes, by: \.identifier).compactMapValues(\.first)
 
         for (runtimeIdentifier, devices) in deviceList.devices {
             let runtime: SimCtl.Runtime?
@@ -103,12 +125,15 @@ class SimulatorsController: ObservableObject {
                                     udid: device.udid,
                                     state: state,
                                     runtime: runtime,
-                                    deviceType: type)
+                                    deviceType: type,
+                                    dataPath: device.dataPath ?? "")
                 final.append(sim)
             }
         }
 
         objectWillChange.send()
+        self.deviceTypes = deviceTypes.devicetypes
+        self.runtimes = runtimes.runtimes
         loadingStatus = .success
         allSimulators = final
         filterSimulators()
@@ -139,11 +164,12 @@ class SimulatorsController: ObservableObject {
         } else {
             filtered = filtered.sorted()
         }
+
         if preferences.showDefaultSimulator {
             filtered = [.default] + filtered
         }
 
-        if trimmed.isEmpty == false {
+        if trimmed.isNotEmpty {
             filtered = filtered.filter { $0.name.localizedCaseInsensitiveContains(trimmed) }
         }
 
@@ -154,7 +180,7 @@ class SimulatorsController: ObservableObject {
         simulators = filtered
 
         let oldSelection = selectedSimulatorIDs
-        let selectableIDs = Set(filtered.map { $0.udid })
+        let selectableIDs = Set(filtered.map(\.udid))
         let newSelection = oldSelection.intersection(selectableIDs)
 
         selectedSimulatorIDs = newSelection
@@ -164,8 +190,9 @@ class SimulatorsController: ObservableObject {
         guard
             let selectedDeviceUDID = selectedSimulatorIDs.first
             else { return }
+
         SimCtl.listApplications(selectedDeviceUDID)
-            .catch { _ in Empty<SimCtl.ApplicationsList, Never>() }
+            .catch { _ in Just(SimCtl.ApplicationsList()) }
             .map { $0.values.compactMap(Application.init) }
             .receive(on: DispatchQueue.main)
             .assign(to: \.applications, on: self)
